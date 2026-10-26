@@ -12,6 +12,8 @@ description: >
 
 # 会议 → Obsidian 笔记
 
+> 完整文档与安装说明见 [README.zh-CN.md](README.zh-CN.md)（英文：[README.md](README.md)）。
+
 在线会议（腾讯会议等）自动记录为结构化 Obsidian 笔记：**画面帧流 + 系统音频 → 单模型转录 → 多模态纠错/总结 → 图文笔记**。
 
 ## 核心架构
