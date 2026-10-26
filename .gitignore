@@ -1,0 +1,14 @@
+# 编译产物与本地数据不入库
+scripts/window_capture
+scripts/window_stream
+scripts/display_capture
+scripts/system_audio_capture
+scripts/capture_window
+scripts/_CodeSignature/
+scripts/Info.plist
+scripts/__pycache__/
+*.log
+.DS_Store
+# 个人配置与业务词表（在 ~/.zcode/config/meeting-to-obsidian/）
+config.sh
+glossary.txt
