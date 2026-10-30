@@ -184,36 +184,24 @@ fi
     printf '{"title": "%s", "date": "%s"}\n' "$TITLE" "$MEETING_DATE" > "$WORK_DIR/meta.json"
 
 NOTE_CONTENT="$WORK_DIR/note.md"
-NOTE_ARGS=("$TRANSCRIPT" "$MANIFEST" "$NOTE_CONTENT" "$WORK_DIR/meta.json")
-[[ -s "$SUMMARY" ]] && NOTE_ARGS+=("$SUMMARY")
-[[ -s "$WORK_DIR/audio.json" ]] && NOTE_ARGS+=("$WORK_DIR/audio.json")
-[[ -s "$CAPTIONS" ]] && NOTE_ARGS+=("$CAPTIONS")
-[[ -s "$TAGS" ]] && NOTE_ARGS+=("$TAGS")
-[[ -s "$TOPIC" ]] && NOTE_ARGS+=("$TOPIC")
-
-# 录音压缩挂附件（wav → m4a）
-ATTACH_DIR="$VAULT/attachments/$SAFE_TITLE"
-mkdir -p "$ATTACH_DIR"
+# ── 发布：整场录音压缩 + 主题切分 + 逐页录音切片 + 按主题出笔记 ──
+REC_DIR="$VAULT/attachments/__完整录音"
+mkdir -p "$REC_DIR"
 AUDIO_LINK=""
-if "$FFMPEG" -nostdin -i "$AUDIO" -c:a aac -b:a 64k -ac 1 "$ATTACH_DIR/audio.m4a" -y -loglevel error 2>>"$LOG" && [ -s "$ATTACH_DIR/audio.m4a" ]; then
-    AUDIO_LINK="attachments/${SAFE_TITLE}/audio.m4a"
-    log "  录音附件: ${AUDIO_LINK}"
-else
-    rm -f "$ATTACH_DIR/audio.m4a"
+if "$FFMPEG" -nostdin -i "$AUDIO" -c:a aac -b:a 64k -ac 1 "$REC_DIR/${SAFE_TITLE}.m4a" -y -loglevel error 2>>"$LOG" && [ -s "$REC_DIR/${SAFE_TITLE}.m4a" ]; then
+    AUDIO_LINK="attachments/__完整录音/${SAFE_TITLE}.m4a"
+    log "  整场录音: ${AUDIO_LINK}"
 fi
 
-"$PYTHON" "$SCRIPT_DIR/generate_note.py" "${NOTE_ARGS[@]}" "$AUDIO_LINK" >> "$LOG" 2>&1 || { log "ERROR: 笔记生成失败"; exit 1; }
-perl -i -pe "s|!\\[\\[frame_|!\\[\\[attachments/${SAFE_TITLE}/frame_|g" "$NOTE_CONTENT"
+"$PYTHON" "$SCRIPT_DIR/build_section_notes.py" \
+    --captions "$WORK_DIR/captions.json" --audio "$AUDIO" --audio-link "$AUDIO_LINK" \
+    --vault "$VAULT" --frames-dir "$FRAMES_DIR" \
+    --base-title "$SAFE_TITLE" --date "$MEETING_DATE" \
+    --meta "$WORK_DIR/meta.json" >> "$LOG" 2>&1 || { log "ERROR: 笔记生成失败"; exit 1; }
 
-rm -f "$ATTACH_DIR"/frame_*.png 2>/dev/null
-cp "$FRAMES_DIR"/frame_*.png "$ATTACH_DIR/" 2>/dev/null || true
+log "完成！笔记已按主题写入: $VAULT/会议笔记/"
 
-"$PYTHON" "$SCRIPT_DIR/obsidian_mcp_client.py" configure "$VAULT" >> "$LOG" 2>&1
-"$PYTHON" "$SCRIPT_DIR/obsidian_mcp_client.py" write "会议笔记/${SAFE_TITLE}.md" "$NOTE_CONTENT" >> "$LOG" 2>&1
-
-log "完成！笔记: $VAULT/会议笔记/${SAFE_TITLE}.md"
-
-bash "$SCRIPT_DIR/cleanup_tmp.py" 1024 >> "$LOG" 2>&1 || true
+"$SCRIPT_DIR/cleanup_tmp.py" 1024 >> "$LOG" 2>&1 || true
 
 if [[ "${KEEP_MLX_SERVER:-0}" != "1" ]]; then
     bash "$SCRIPT_DIR/mlx_server.sh" "" "" stop >> "$LOG" 2>&1 || true

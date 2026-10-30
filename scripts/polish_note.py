@@ -181,12 +181,11 @@ def load_manifest(path):
 VISION_PROMPT = (
     "你是会议记录整理助手。给你一张演示文稿截图，以及放映该页时演讲的语音转录片段。\n"
     "转录是语音识别结果，存在同音字/错别字（例如读音相同或相近但写错的词）。\n"
-    "请：1) 参照截图上的文字与上下文语义，纠正转录中的同音字/错别字、添加标点、"
-    "精简无意义语气词（呃/啊/嗯/哈），保持原意与句子结构，不添加原文没有的信息；\n"
-    "2) 为这张截图写一句配图说明：直接用陈述句写出该页的核心内容与结论，"
-    "句首不要加「该页」「本页」「此页」「幻灯片」「演讲」「讲解」等任何指代前缀，"
-    "也不要转述语气，直接说事——例如「四阶段跃迁路径：从对话式到托管式，多数企业处于第二到第三阶段之间」；"
-    "1-2 句，保留关键术语与数字。\n"
+    "请：1) 逐句输出纠正后的转录全文（保真为第一优先）：只纠正同音字/错别字、添加标点、"
+    "删除纯语气词（呃/啊/嗯/哈），严禁概括、缩写或跳过任何句子，长度应与原文相当；"
+    "可参照截图上的文字修正术语写法。\n"
+    "2) 另写一句该截图的配图说明：直接陈述句总结该页核心内容与结论，"
+    "句首禁止「该页/本页/此页/幻灯片/演讲/讲解」等指代前缀与转述语气。\n"
     "只输出 JSON：<JSON_OBJECT> 格式为 {\"fixed\": \"纠正后的本段转录全文\", \"caption\": \"配图说明\"}\n"
     "已知术语替换（必须执行）：@HINT@\n\n本段转录：\n@CHUNK@"
 )
@@ -228,11 +227,15 @@ def vision_frame_pass(frames, segments, frames_dir, rules, out_captions):
                 m = re.search(r"\{[\s\S]*\}", out)
                 if m:
                     j = json.loads(m.group(0))
-                    fixed = j.get("fixed") or slice_text
+                    fixed = (j.get("fixed") or "").strip()
                     caption = (j.get("caption") or "").strip()
             except Exception:
-                fixed = out if len(out) > len(slice_text) * 0.3 else slice_text
-        captions[fr["file"]] = {"ts_str": fr["ts_str"], "caption": caption, "raw": slice_text}
+                pass
+        # 保真校验：模型输出明显短于原文（被概括/截断）时回退为原文切片，只保留 caption
+        if fixed and len(fixed) < len(slice_text) * 0.8:
+            fixed = slice_text
+        captions[fr["file"]] = {"ts_str": fr["ts_str"], "caption": caption,
+                                 "raw": slice_text, "fixed": fixed}
         print(f"  帧 {i + 1}/{len(frames)} 完成: {fr['file']}", flush=True)
         return fr["file"], fixed
 
@@ -249,6 +252,10 @@ def vision_frame_pass(frames, segments, frames_dir, rules, out_captions):
                 print(f"  WARN: {e}", flush=True)
 
     fixed_parts = [fixed_map[fr["file"]] for _, fr, _, _ in tasks if fr["file"] in fixed_map]
+
+    # 关键：按放映顺序重建 captions（并行完成序≠时间序），下游分段/对齐依赖时间序
+    captions = {fr["file"]: captions[fr["file"]]
+                for _, fr, _, _ in tasks if fr["file"] in captions}
 
     if out_captions:
         os.makedirs(os.path.dirname(out_captions) or ".", exist_ok=True)
@@ -432,6 +439,7 @@ def main():
         polished, _ = vision_frame_pass(frames, segments, args.frames_dir, rules,
                                         args.captions_out or os.path.join(
                                             os.path.dirname(args.polished_out), "captions.json"))
+        polished = apply_glossary(polished, rules)  # 视觉改写可能回退术语，终检兜底
         if not polished:
             polished = raw
     else:

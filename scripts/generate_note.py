@@ -176,10 +176,18 @@ def generate_note(transcript, frames, title, meeting_date, output_path,
             note_lines.append("")
             note_lines.append(f"![[{img_path}]]")
             note_lines.append("")
+            audio_clip = (cap_info.get("audio") or "").strip()
             if raw_slice:
                 note_lines.append("> [!quote]- 本时段讲解原文")
                 for line in raw_slice.splitlines():
                     note_lines.append(f"> {line}")
+                note_lines.append("")
+            elif audio_clip:
+                note_lines.append("> [!quote]- 本时段讲解原文")
+                note_lines.append("> （本次翻页间无语音）")
+                note_lines.append("")
+            if audio_clip:
+                note_lines.append(f"> [!audio]- 本页讲解录音 [[{audio_clip}|▶]]")
                 note_lines.append("")
             note_lines.append("")
 

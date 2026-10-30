@@ -96,16 +96,16 @@ def main():
                  os.path.join(td, "c%03d.wav"), "-y", "-loglevel", "error"],
                 check=True)
             parts = sorted(os.listdir(td))
-            offset = 0.0
+            # ffmpeg -f segment 的块边界是精确的 i*MAX_CHUNK_SEC（末块除外）；
+            # 用块序号计算基准偏移，避免"分段最大end"累计造成的时间漂移
             for i, part in enumerate(parts, 1):
                 print(f"  长音频分段 {i}/{len(parts)}", file=sys.stderr, flush=True)
                 segs = transcribe(model_path, os.path.join(td, part), ctx, td)
+                base = (i - 1) * MAX_CHUNK_SEC
                 for s in segs:
-                    all_segs.append({"start": round(s["start"] + offset, 2),
-                                     "end": round(s["end"] + offset, 2),
+                    all_segs.append({"start": round(s["start"] + base, 2),
+                                     "end": round(s["end"] + base, 2),
                                      "text": s["text"].strip()})
-                if segs:
-                    offset += max(s["end"] for s in segs)
     else:
         all_segs = transcribe(model_path, audio, ctx, out_dir)
         all_segs = [{"start": round(s["start"], 2), "end": round(s["end"], 2),

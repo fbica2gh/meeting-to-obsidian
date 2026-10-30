@@ -177,43 +177,32 @@ if [[ -s "$TOPIC" ]]; then
     NOTE_ARGS+=("$TOPIC")
 fi
 
-# 录音压缩后挂入笔记附件（wav → m4a 64k，约 1/6 体积）；在生成笔记前完成以便写入链接
-ATTACH_DIR="$VAULT/attachments/$SAFE_TITLE"
-mkdir -p "$ATTACH_DIR"
+# ── 发布：整场录音压缩（共享位置） + 主题切分 + 逐页录音切片 + 按主题出笔记 ──
+REC_DIR="$VAULT/attachments/__完整录音"
+mkdir -p "$REC_DIR"
 AUDIO_LINK=""
-if "$FFMPEG" -nostdin -i "$AUDIO" -c:a aac -b:a 64k -ac 1 "$ATTACH_DIR/audio.m4a" -y -loglevel error 2>>"$LOG_FILE" && [ -s "$ATTACH_DIR/audio.m4a" ]; then
-    AUDIO_LINK="attachments/${SAFE_TITLE}/audio.m4a"
-    log "  录音附件: ${AUDIO_LINK}（$(du -h "$ATTACH_DIR/audio.m4a" | awk '{print $1}')）"
+if "$FFMPEG" -nostdin -i "$AUDIO" -c:a aac -b:a 64k -ac 1 "$REC_DIR/${SAFE_TITLE}.m4a" -y -loglevel error 2>>"$LOG_FILE" && [ -s "$REC_DIR/${SAFE_TITLE}.m4a" ]; then
+    AUDIO_LINK="attachments/__完整录音/${SAFE_TITLE}.m4a"
+    log "  整场录音: ${AUDIO_LINK}（$(du -h "$REC_DIR/${SAFE_TITLE}.m4a" | awk '{print $1}')）"
 else
-    rm -f "$ATTACH_DIR/audio.m4a"
-    log "WARNING: 录音压缩失败，跳过录音附件"
+    log "WARNING: 整场录音压缩失败，跳过"
 fi
 
-"$PYTHON" "$SCRIPT_DIR/generate_note.py" "${NOTE_ARGS[@]}" "$AUDIO_LINK" >> "$LOG_FILE" 2>&1 || {
+"$PYTHON" "$SCRIPT_DIR/build_section_notes.py" \
+    --captions "$CAPTIONS" --audio "$AUDIO" --audio-link "$AUDIO_LINK" \
+    --vault "$VAULT" --frames-dir "$FRAMES_DIR" \
+    --base-title "$SAFE_TITLE" --date "$MEETING_DATE" \
+    --meta "$WORK_DIR/meta.json" --tags "$TAGS" >> "$LOG_FILE" 2>&1 || {
     log "ERROR: 笔记生成失败"
     exit 1
 }
 
-# 修复图片引用路径
-perl -i -pe "s|!\\[\\[frame_|!\\[\\[attachments/${SAFE_TITLE}/frame_|g" "$NOTE_CONTENT"
-
-# 只清旧帧文件（保留 audio.m4a），再拷入新关键帧
-rm -f "$ATTACH_DIR"/frame_*.png 2>/dev/null
-cp "$FRAMES_DIR"/frame_*.png "$ATTACH_DIR/"
-
-MCP_CLIENT="$SCRIPT_DIR/obsidian_mcp_client.py"
-NOTE_PATH="会议笔记/${SAFE_TITLE}.md"
-"$PYTHON" "$MCP_CLIENT" configure "$VAULT" >> "$LOG_FILE" 2>&1
-"$PYTHON" "$MCP_CLIENT" write "$NOTE_PATH" "$NOTE_CONTENT" >> "$LOG_FILE" 2>&1
-
 log ""
 log "完成！"
-log "笔记: $VAULT/$NOTE_PATH"
-log "图片: $ATTACH_DIR"
 log "日志: $LOG_FILE"
 
 # 临时目录滚动清理（上限 1GB）
-bash "$SCRIPT_DIR/cleanup_tmp.py" 1024 >> "$LOG_FILE" 2>&1 || true
+"$SCRIPT_DIR/cleanup_tmp.py" 1024 >> "$LOG_FILE" 2>&1 || true
 
 # 从 GPU/内存卸载模型，释放资源（设置 KEEP_MLX_SERVER=1 可保留下次直接复用）
 if [[ "${KEEP_MLX_SERVER:-0}" != "1" ]]; then
